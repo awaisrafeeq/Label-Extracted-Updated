@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EquipGPT Dashboard - PDF Processing Suite</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: 260px;
+      height: 100vh;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      position: fixed;
+      left: 0;
+      top: 0;
+      padding: 24px 0;
+      box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      transition: transform 0.3s ease;
+    }
+
+    .logo {
+      padding: 0 24px 32px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      margin-bottom: 24px;
+    }
+
+    .logo h1 {
+      font-size: 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 800;
+    }
+
+    .logo p {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .nav-items {
+      padding: 0 16px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #374151;
+      text-decoration: none;
+      background: transparent;
+      border: none;
+      width: 100%;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .nav-item:hover {
+      background: rgba(102, 126, 234, 0.1);
+      color: #667eea;
+    }
+
+    .nav-item.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+
+    .nav-item svg {
+      width: 20px;
+      height: 20px;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+
+    /* Main Content Area */
+    .main-content {
+      margin-left: 260px;
+      padding: 32px;
+      min-height: 100vh;
+    }
+
+    .page {
+      display: none;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Dashboard Stats */
+    .dashboard-header {
+      margin-bottom: 32px;
+    }
+
+    .dashboard-header h2 {
+      font-size: 32px;
+      color: white;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .dashboard-header p {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 16px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: white;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 15px 50px rgba(0, 0, 0, 0.12);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #6b7280;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .stat-change {
+      font-size: 13px;
+      color: #10b981;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Upload Sections */
+    .upload-container {
+      background: white;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    }
+
+    .upload-header {
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #f3f4f6;
+    }
+
+    .upload-header h3 {
+      font-size: 24px;
+      color: #1f2937;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .upload-header p {
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .upload-area {
+      border: 2px dashed #e5e7eb;
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      margin-bottom: 24px;
+      transition: all 0.3s;
+      background: #fafbfc;
+    }
+
+    .upload-area:hover {
+      border-color: #667eea;
+      background: rgba(102, 126, 234, 0.02);
+    }
+
+    .upload-area.dragging {
+      border-color: #667eea;
+      background: rgba(102, 126, 234, 0.05);
+    }
+
+    .upload-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px;
+      opacity: 0.4;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-secondary:hover {
+      background: #e5e7eb;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Results Section */
+    .results-section {
+      margin-top: 32px;
+      display: none;
+    }
+
+    .results-section.active {
+      display: block;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .result-stats {
+      display: flex;
+      gap: 24px;
+    }
+
+    .result-stat {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .result-stat span:first-child {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .result-stat span:last-child {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+
+    /* Table Styles */
+    .table-container {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    }
+
+    .equipment-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .equipment-table th {
+      background: #f9fafb;
+      padding: 12px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .equipment-table td {
+      padding: 12px;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .equipment-table td[contenteditable="true"] {
+      cursor: text;
+      transition: background 0.2s;
+    }
+
+    .equipment-table td[contenteditable="true"]:hover {
+      background: #f9fafb;
+    }
+
+    .equipment-table td[contenteditable="true"]:focus {
+      outline: 2px solid #667eea;
+      outline-offset: -1px;
+      background: rgba(102, 126, 234, 0.05);
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin-top: 24px;
+      padding: 20px;
+      background: #f9fafb;
+      border-radius: 0 0 12px 12px;
+    }
+
+    .pagination button {
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      color: #374151;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+
+    .pagination button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .page-info {
+      font-size: 14px;
+      color: #6b7280;
+      padding: 0 12px;
+    }
+
+    /* Loading Spinner */
+    .loader {
+      display: none;
+      justify-content: center;
+      align-items: center;
+      padding: 32px;
+    }
+
+    .loader.active {
+      display: flex;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #e5e7eb;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Status Messages */
+    .status-message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-top: 16px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .status-message.success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+      display: block;
+    }
+
+    .status-message.error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      display: block;
+    }
+
+    /* Recent Activity */
+    .activity-list {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin-top: 24px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    }
+
+    .activity-header {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 20px;
+    }
+
+    .activity-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .activity-item:last-child {
+      border-bottom: none;
+    }
+
+    .activity-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 16px;
+    }
+
+    .activity-details { flex: 1; }
+
+    .activity-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 4px;
+    }
+
+    .activity-time {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    /* Mobile Responsiveness */
+    .menu-toggle {
+      display: none;
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 1100;
+      background: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    @media (max-width: 768px) {
+      .menu-toggle { display: block; }
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; padding: 20px; padding-top: 60px; }
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== Auth Overlay (Step 1) ===== */
+    .auth-overlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 20px;
+    }
+    .auth-card{
+      width: min(520px, 100%);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 22px;
+      backdrop-filter: blur(14px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      color: #fff;
+    }
+    .auth-title{
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 6px 0;
+    }
+    .auth-sub{
+      margin: 0 0 16px 0;
+      opacity: 0.85;
+      font-size: 13px;
+    }
+    .auth-row{ display:flex; gap:12px; }
+    .auth-row > div{ flex:1; }
+    .auth-card label{
+      display:block;
+      font-size: 12px;
+      opacity: 0.85;
+      margin: 10px 0 6px;
+    }
+    .auth-card input{
+      width:100%;
+      padding: 12px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(0,0,0,0.25);
+      color: #fff;
+      outline: none;
+    }
+    .auth-actions{
+      display:flex;
+      gap:12px;
+      margin-top: 14px;
+      align-items:center;
+      justify-content: space-between;
+    }
+    .auth-actions button{ width: 100%; }
+    .auth-switch{
+      background: transparent;
+      border: none;
+      color: rgba(255,255,255,0.85);
+      cursor: pointer;
+      text-decoration: underline;
+      font-size: 12px;
+      padding: 0;
+      margin-top: 10px;
+    }
+    .auth-error{
+      margin-top: 10px;
+      color: #ffb4b4;
+      font-size: 12px;
+      display:none;
+    }
+    .account-box{
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.10);
+      font-size: 12px;
+      margin-left: 16px;
+      margin-right: 16px;
+    }
+    .account-box .muted{ opacity:0.75; }
+    .account-box button{
+      margin-top: 10px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== Auth Overlay (Step 1) ===== -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-title" id="authTitle">Sign in</div>
+      <p class="auth-sub" id="authSub">Log in to access the PDF Processing Suite.</p>
+
+      <div class="auth-row">
+        <div>
+          <label for="authEmail">Email</label>
+          <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="email" />
+        </div>
+      </div>
+
+      <div class="auth-row">
+        <div>
+          <label for="authPassword">Password</label>
+          <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+      </div>
+
+      <div class="auth-actions">
+        <button class="btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Sign in</button>
+      </div>
+
+      <button class="auth-switch" id="authSwitchBtn" onclick="toggleAuthMode()">Need an account? Sign up</button>
+      <div class="auth-error" id="authError"></div>
+    </div>
+  </div>
+
+  <!-- Mobile Menu Toggle -->
+  <button class="menu-toggle" onclick="toggleSidebar()">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M3 12h18M3 6h18M3 18h18"/>
+    </svg>
+  </button>
+
+  <!-- Sidebar Navigation -->
+  <nav class="sidebar" id="sidebar">
+    <div class="logo">
+      <h1>EquipGPT</h1>
+      <p>PDF Processing Suite</p>
+    </div>
+
+    <div class="account-box" id="accountBox">
+      <div><strong>Account</strong></div>
+      <div class="muted" id="accountStatus">Not signed in</div>
+      <button class="btn btn-secondary" id="logoutBtn" style="display:none;" onclick="handleLogout()">Logout</button>
+    </div>
+
+    <div class="nav-items">
+      <button class="nav-item active" onclick="showPage('dashboard', this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        Dashboard
+      </button>
+
+      <button class="nav-item" onclick="showPage('medium-voltage', this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        Medium Voltage
+      </button>
+
+      <button class="nav-item" onclick="showPage('equipment-data', this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+        </svg>
+        Equipment Data
+      </button>
+
+      <button class="nav-item" onclick="showPage('history', this)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        History
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+
+    <!-- Dashboard Page -->
+    <div id="dashboard" class="page active">
+      <div class="dashboard-header">
+        <h2>Welcome to EquipGPT Dashboard</h2>
+        <p>Process and analyze your electrical equipment PDFs with ease</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total PDFs Processed</div>
+          <div class="stat-value">247</div>
+          <div class="stat-change">
+            <svg width="16" height="16" fill="#10b981"><path d="M8 4l4 8H4z"/></svg>
+            +12% from last month
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Equipment Extracted</div>
+          <div class="stat-value">1,842</div>
+          <div class="stat-change">
+            <svg width="16" height="16" fill="#10b981"><path d="M8 4l4 8H4z"/></svg>
+            +23% from last month
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">MVS Count</div>
+          <div class="stat-value">523</div>
+          <div class="stat-change">
+            <svg width="16" height="16" fill="#10b981"><path d="M8 4l4 8H4z"/></svg>
+            +8% from last month
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">DSG Count</div>
+          <div class="stat-value">189</div>
+          <div class="stat-change">
+            <svg width="16" height="16" fill="#10b981"><path d="M8 4l4 8H4z"/></svg>
+            +15% from last month
+          </div>
+        </div>
+      </div>
+
+      <div class="activity-list">
+        <h3 class="activity-header">Recent Activity</h3>
+
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg width="20" height="20" fill="white">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+              <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000 2H6a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2a1 1 0 100-2h2a4 4 0 014 4v8a4 4 0 01-4 4H6a4 4 0 01-4-4V7z"/>
+            </svg>
+          </div>
+          <div class="activity-details">
+            <div class="activity-title">Medium Voltage PDF Processed</div>
+            <div class="activity-time">2 minutes ago</div>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg width="20" height="20" fill="white">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+              <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000 2H6a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2a1 1 0 100-2h2a4 4 0 014 4v8a4 4 0 01-4 4H6a4 4 0 01-4-4V7z"/>
+            </svg>
+          </div>
+          <div class="activity-details">
+            <div class="activity-title">Equipment Data Extracted</div>
+            <div class="activity-time">15 minutes ago</div>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <div class="activity-icon">
+            <svg width="20" height="20" fill="white">
+              <path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8 7a1 1 0 012 0v5a1 1 0 11-2 0V7zm4 0a1 1 0 012 0v5a1 1 0 11-2 0V7z"/>
+            </svg>
+          </div>
+          <div class="activity-details">
+            <div class="activity-title">Excel Report Generated</div>
+            <div class="activity-time">1 hour ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Medium Voltage Page -->
+    <div id="medium-voltage" class="page">
+      <div class="upload-container">
+        <div class="upload-header">
+          <h3>Medium Voltage PDF Processor</h3>
+          <p>Upload your medium voltage PDF to extract equipment and connection mapping</p>
+        </div>
+
+        <form id="mvForm">
+          <div class="upload-area" id="mvUploadArea">
+            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            <p style="font-size: 16px; color: #374151; margin-bottom: 8px;">Drop your PDF here or click to browse</p>
+            <p style="font-size: 13px; color: #6b7280;">Maximum file size: 50MB</p>
+            <input type="file" id="mvInput" class="file-input" accept="application/pdf" />
+            <label for="mvInput" class="btn" style="margin-top: 16px;">Choose File</label>
+          </div>
+
+          <div id="mvFileName" style="display:none; margin-bottom: 16px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 14px;"></div>
+
+          <button type="submit" class="btn" id="mvSubmit" disabled>
+            <svg width="16" height="16" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Process PDF
+          </button>
+
+          <div class="loader" id="mvLoader">
+            <div class="spinner"></div>
+          </div>
+
+          <div id="mvStatus" class="status-message"></div>
+        </form>
+
+        <div id="mvResults" class="results-section">
+          <div class="result-header">
+            <div class="result-stats">
+              <div class="result-stat"><span></span><span id="mvMvsCount"></span></div>
+              <div class="result-stat"><span></span><span id="mvDsgCount"></span></div>
+            </div>
+            <button class="btn" onclick="downloadMvExcel()">Download Excel</button>
+          </div>
+          <div id="mvTableContainer"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Equipment Data Page -->
+    <div id="equipment-data" class="page">
+      <div class="upload-container">
+        <div class="upload-header">
+          <h3>Equipment Data Extractor</h3>
+          <p>Upload your equipment PDF for detailed data extraction and analysis</p>
+        </div>
+
+        <form id="edForm">
+          <div class="upload-area" id="edUploadArea">
+            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            <p style="font-size: 16px; color: #374151; margin-bottom: 8px;">Drop your PDF here or click to browse</p>
+            <p style="font-size: 13px; color: #6b7280;">Maximum file size: 50MB</p>
+            <input type="file" id="edInput" class="file-input" accept="application/pdf" />
+            <label for="edInput" class="btn" style="margin-top: 16px;">Choose File</label>
+          </div>
+
+          <div id="edFileName" style="display:none; margin-bottom: 16px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 14px;"></div>
+
+          <button type="submit" class="btn" id="edSubmit" disabled>
+            <svg width="16" height="16" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Process PDF
+          </button>
+
+          <div class="loader" id="edLoader">
+            <div class="spinner"></div>
+          </div>
+
+          <div id="edStatus" class="status-message"></div>
+        </form>
+
+        <div id="edResults" class="results-section">
+          <div class="result-header">
+            <div class="result-stats">
+              <div class="result-stat"><span>Equipment Count</span><span id="edEquipmentCount">0</span></div>
+              <div class="result-stat"><span>Types Identified</span><span id="edTypesCount">0</span></div>
+            </div>
+            <button class="btn" onclick="downloadEdExcel()">Download Excel</button>
+          </div>
+          <div id="edTableContainer"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Page -->
+    <div id="history" class="page">
+      <div class="dashboard-header">
+        <h2>History</h2>
+        <p>Your previous extraction runs and exported Excel files</p>
+
+        <div style="margin-top: 12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="loadHistory()">Refresh</button>
+          <div class="muted" id="historyStatus" style="display:flex; align-items:center;"></div>
+        </div>
+      </div>
+
+      <div class="table-container" style="margin-top:16px;">
+        <table class="equipment-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>PDF</th>
+              <th>Excel</th>
+              <th>Rows</th>
+              <th>Time (s)</th>
+            </tr>
+          </thead>
+          <tbody id="historyTbody">
+            <tr><td colspan="6" style="padding:16px;">No history yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+
+  <script>
+    // ===== Backend base URL =====
+    // Default: same origin (when served by FastAPI).
+    // Optional override: add ?api=https://YOUR-RENDER-APP.onrender.com
+    const API_BASE = new URLSearchParams(window.location.search).get("api") || window.location.origin;
+
+    // ===== Supabase Auth =====
+    let supabaseClient = null;
+    let authMode = "signin"; // "signin" | "signup"
+    let authToken = null;
+    let currentUser = null;
+
+    function safeText(v) {
+      return (v === null || v === undefined || v === "") ? "-" : String(v);
+    }
+
+    function absUrl(path) {
+      return new URL(path, API_BASE).toString();
+    }
+
+    function showAuthOverlay() {
+      const o = document.getElementById("authOverlay");
+      if (o) o.style.display = "flex";
+      updateAccountBox();
+    }
+
+    function hideAuthOverlay() {
+      const o = document.getElementById("authOverlay");
+      if (o) o.style.display = "none";
+    }
+
+    function setAuthError(msg) {
+      const el = document.getElementById("authError");
+      if (!el) return;
+      if (!msg) { el.style.display = "none"; el.textContent = ""; return; }
+      el.textContent = msg;
+      el.style.display = "block";
+    }
+
+    function updateAuthModeUI() {
+      const title = document.getElementById("authTitle");
+      const sub = document.getElementById("authSub");
+      const btn = document.getElementById("authSubmitBtn");
+      const sw = document.getElementById("authSwitchBtn");
+      if (!title || !sub || !btn || !sw) return;
+
+      if (authMode === "signup") {
+        title.textContent = "Create account";
+        sub.textContent = "Sign up to start using the PDF Processing Suite.";
+        btn.textContent = "Sign up";
+        sw.textContent = "Already have an account? Sign in";
+      } else {
+        title.textContent = "Sign in";
+        sub.textContent = "Log in to access the PDF Processing Suite.";
+        btn.textContent = "Sign in";
+        sw.textContent = "Need an account? Sign up";
+      }
+      setAuthError("");
+    }
+
+    function toggleAuthMode() {
+      authMode = (authMode === "signin") ? "signup" : "signin";
+      updateAuthModeUI();
+    }
+
+    async function refreshMe() {
+      if (!authToken) return null;
+      try {
+        const res = await fetch(API_BASE + "/me", { headers: { "Authorization": "Bearer " + authToken } });
+        if (!res.ok) { currentUser = null; return null; }
+        currentUser = await res.json();
+        return currentUser;
+      } catch {
+        currentUser = null;
+        return null;
+      }
+    }
+
+    function updateAccountBox() {
+      const status = document.getElementById("accountStatus");
+      const btn = document.getElementById("logoutBtn");
+      if (!status || !btn) return;
+
+      if (currentUser && currentUser.email) {
+        status.textContent = "Signed in: " + currentUser.email;
+        btn.style.display = "block";
+      } else {
+        status.textContent = "Not signed in";
+        btn.style.display = "none";
+      }
+    }
+
+    async function initSupabaseAuth() {
+      try {
+        const res = await fetch(API_BASE + "/public-config");
+        if (!res.ok) {
+          showAuthOverlay();
+          setAuthError("Server is missing SUPABASE_URL / SUPABASE_ANON_KEY env vars.");
+          return;
+        }
+        const cfg = await res.json();
+        if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+          showAuthOverlay();
+          setAuthError("Supabase config is not available.");
+          return;
+        }
+
+        supabaseClient = supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+
+        const { data } = await supabaseClient.auth.getSession();
+        if (data && data.session) {
+          authToken = data.session.access_token;
+          await refreshMe();
+          hideAuthOverlay();
+        } else {
+          showAuthOverlay();
+        }
+
+        supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+          authToken = session?.access_token || null;
+          if (authToken) {
+            await refreshMe();
+            hideAuthOverlay();
+          } else {
+            currentUser = null;
+            showAuthOverlay();
+          }
+          updateAccountBox();
+        });
+
+        updateAuthModeUI();
+        updateAccountBox();
+      } catch (e) {
+        console.error(e);
+        showAuthOverlay();
+        setAuthError("Auth initialization failed. Check console for details.");
+      }
+    }
+
+    async function handleAuthSubmit() {
+      if (!supabaseClient) return;
+      const email = (document.getElementById("authEmail")?.value || "").trim();
+      const password = (document.getElementById("authPassword")?.value || "").trim();
+
+      if (!email || !password) { setAuthError("Please enter email and password."); return; }
+      setAuthError("");
+
+      try {
+        if (authMode === "signup") {
+          const { error } = await supabaseClient.auth.signUp({ email, password });
+          if (error) throw error;
+          setAuthError("Account created. Please sign in.");
+          authMode = "signin";
+          updateAuthModeUI();
+          return;
+        } else {
+          const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+        }
+      } catch (e) {
+        setAuthError(e?.message || "Authentication failed.");
+      }
+    }
+
+    async function handleLogout() {
+      try { await supabaseClient?.auth.signOut(); } catch (e) { console.error(e); }
+    }
+
+    function getAuthHeaders(extra = {}) {
+      return authToken ? { ...extra, "Authorization": "Bearer " + authToken } : { ...extra };
+    }
+
+    // ===== Endpoints (match your backend) =====
+    const ENDPOINTS = {
+      mv: "/extract-type1",       // Medium Voltage page -> Type 1
+      ed: "/extract-type2",       // Equipment Data page -> Type 2
+      exportEdited: "/export-edited",
+      outputsPrefix: "/outputs/"
+    };
+
+    // Global state
+    let mvData = null;
+    let edData = null;
+
+    // Navigation
+    function showPage(pageId, el) {
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      if (el) el.classList.add('active');
+
+      document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+      document.getElementById(pageId).classList.add('active');
+
+      if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('open');
+
+      if (pageId === "history") loadHistory();
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+    }
+
+    document.addEventListener('click', (e) => {
+      const sidebar = document.getElementById('sidebar');
+      const menuToggle = document.querySelector('.menu-toggle');
+      if (window.innerWidth <= 768 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+        sidebar.classList.remove('open');
+      }
+    });
+
+    function headersFor(which) {
+      return which === "type1"
+        ? ["Equipment", "Type", "Properties", "Primary From", "Alternate From"]
+        : ["Equipment", "Type", "Properties", "Primary From", "Alternate From"];
+    }
+
+    function setStatus(el, type, msgHtml) {
+      el.className = 'status-message ' + (type || '');
+      el.innerHTML = msgHtml || '';
+      if (!msgHtml) el.className = 'status-message';
+    }
+
+    function setupDragDrop(uploadArea, fileInput) {
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, () => uploadArea.classList.add('dragging'));
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, () => uploadArea.classList.remove('dragging'));
+      });
+
+      uploadArea.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type === 'application/pdf') {
+          fileInput.files = files;
+          fileInput.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+
+    // ===== History =====
+    function prettyJobType(t) {
+      const x = (t || "").toLowerCase();
+      if (x === "type1") return "Type 1";
+      if (x === "type2") return "Type 2";
+      if (x === "edited_type1") return "Edited (Type 1)";
+      if (x === "edited_type2") return "Edited (Type 2)";
+      return t || "-";
+    }
+
+    function fileLink(fileName) {
+      if (!fileName || fileName === "NULL") return "-";
+      const url = API_BASE + "/outputs/" + encodeURIComponent(fileName);
+      return `<a href="${url}" target="_blank" rel="noopener">Download</a>`;
+    }
+
+    async function loadHistory() {
+      const statusEl = document.getElementById("historyStatus");
+      const tbody = document.getElementById("historyTbody");
+
+      if (!authToken) {
+        if (statusEl) statusEl.textContent = "Please sign in to view history.";
+        showAuthOverlay();
+        return;
+      }
+
+      if (statusEl) statusEl.textContent = "Loading...";
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;">Loading...</td></tr>`;
+
+      try {
+        const res = await fetch(API_BASE + "/my/jobs", { headers: getAuthHeaders() });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`History request failed (${res.status}): ${txt}`);
+        }
+
+        const data = await res.json();
+        const jobs = data.jobs || [];
+
+        if (!jobs.length) {
+          if (statusEl) statusEl.textContent = "No jobs found.";
+          if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;">No history yet.</td></tr>`;
+          return;
+        }
+
+        if (statusEl) statusEl.textContent = `Showing ${jobs.length} job(s).`;
+
+        const rowsHtml = jobs.map(j => {
+          const dt = j.created_at ? new Date(j.created_at).toLocaleString() : "-";
+          const pdf = safeText(j.original_filename);
+          const excel = safeText(j.excel_file_name);
+          const rows = safeText(j.equipment_count);
+          const time = (j.execution_time_seconds === null || j.execution_time_seconds === undefined)
+            ? "-"
+            : Number(j.execution_time_seconds).toFixed(2);
+
+          return `
+            <tr>
+              <td>${dt}</td>
+              <td>${prettyJobType(j.job_type)}</td>
+              <td>${pdf}</td>
+              <td>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                  <span>${excel}</span>
+                  <span>${fileLink(j.excel_file_name)}</span>
+                </div>
+              </td>
+              <td>${rows}</td>
+              <td>${time}</td>
+            </tr>
+          `;
+        }).join("");
+
+        if (tbody) tbody.innerHTML = rowsHtml;
+
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Failed to load history.";
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;">Error: ${safeText(err.message)}</td></tr>`;
+        console.error(err);
+      }
+    }
+
+    // ===== Medium Voltage (Type 1) =====
+    const mvInput = document.getElementById('mvInput');
+    const mvUploadArea = document.getElementById('mvUploadArea');
+    const mvFileName = document.getElementById('mvFileName');
+    const mvSubmit = document.getElementById('mvSubmit');
+    const mvForm = document.getElementById('mvForm');
+    const mvLoader = document.getElementById('mvLoader');
+    const mvStatus = document.getElementById('mvStatus');
+    const mvResults = document.getElementById('mvResults');
+
+    setupDragDrop(mvUploadArea, mvInput);
+
+    mvInput.addEventListener('change', () => {
+      const file = mvInput.files[0];
+      if (file) {
+        mvFileName.style.display = 'block';
+        mvFileName.innerHTML = `<strong>Selected:</strong> ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+        mvSubmit.disabled = false;
+      }
+    });
+
+    mvForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const file = mvInput.files[0];
+      if (!file) return;
+
+      mvLoader.classList.add('active');
+      setStatus(mvStatus, '', '');
+      mvSubmit.disabled = true;
+      mvResults.classList.remove('active');
+
+      try {
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+
+        const response = await fetch(absUrl(ENDPOINTS.mv), {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: formData
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Server error: ${response.status}\n${text || ''}`);
+        }
+
+        const data = await response.json();
+
+        mvData = {
+          which: "type1",
+          raw: data,
+          equipment_data: Array.isArray(data.equipment_data) ? data.equipment_data : [],
+          excel_file_name: data.excel_file_name || null,
+          execution_time_seconds: data.execution_time_seconds ?? null,
+        };
+
+        displayMvResults(mvData);
+
+        const dl = mvData.excel_file_name
+          ? `<br/><a href="${absUrl(ENDPOINTS.outputsPrefix + mvData.excel_file_name)}" target="_blank" rel="noopener noreferrer">Download original Excel</a>`
+          : "";
+
+        setStatus(mvStatus, 'success', `PDF processed successfully!${dl}`);
+
+      } catch (error) {
+        setStatus(mvStatus, 'error', `Error: ${safeText(error.message)}`);
+      } finally {
+        mvLoader.classList.remove('active');
+        mvSubmit.disabled = false;
+      }
+    });
+
+    function displayMvResults(state) {
+      const rows = state.equipment_data || [];
+      if (rows.length > 0) {
+        mvResults.classList.add('active');
+        renderTable(rows, 'mvTableContainer', 'mv', state.which);
+      }
+    }
+
+    // ===== Equipment Data (Type 2) =====
+    const edInput = document.getElementById('edInput');
+    const edUploadArea = document.getElementById('edUploadArea');
+    const edFileName = document.getElementById('edFileName');
+    const edSubmit = document.getElementById('edSubmit');
+    const edForm = document.getElementById('edForm');
+    const edLoader = document.getElementById('edLoader');
+    const edStatus = document.getElementById('edStatus');
+    const edResults = document.getElementById('edResults');
+
+    setupDragDrop(edUploadArea, edInput);
+
+    edInput.addEventListener('change', () => {
+      const file = edInput.files[0];
+      if (file) {
+        edFileName.style.display = 'block';
+        edFileName.innerHTML = `<strong>Selected:</strong> ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+        edSubmit.disabled = false;
+      }
+    });
+
+    edForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const file = edInput.files[0];
+      if (!file) return;
+
+      edLoader.classList.add('active');
+      setStatus(edStatus, '', '');
+      edSubmit.disabled = true;
+      edResults.classList.remove('active');
+
+      try {
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+
+        const response = await fetch(absUrl(ENDPOINTS.ed), {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: formData
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Server error: ${response.status}\n${text || ''}`);
+        }
+
+        const data = await response.json();
+
+        edData = {
+          which: "type2",
+          raw: data,
+          equipment_data: Array.isArray(data.equipment_data) ? data.equipment_data : [],
+          excel_file_name: data.excel_file_name || null,
+          execution_time_seconds: data.execution_time_seconds ?? null,
+        };
+
+        displayEdResults(edData);
+
+        const dl = edData.excel_file_name
+          ? `<br/><a href="${absUrl(ENDPOINTS.outputsPrefix + edData.excel_file_name)}" target="_blank" rel="noopener noreferrer">Download original Excel</a>`
+          : "";
+
+        setStatus(edStatus, 'success', `PDF processed successfully!${dl}`);
+
+      } catch (error) {
+        setStatus(edStatus, 'error', `Error: ${safeText(error.message)}`);
+      } finally {
+        edLoader.classList.remove('active');
+        edSubmit.disabled = false;
+      }
+    });
+
+    function displayEdResults(state) {
+      const rows = state.equipment_data || [];
+      document.getElementById('edEquipmentCount').textContent = rows.length;
+
+      const types = new Set(rows.map(item => item.Type).filter(Boolean));
+      document.getElementById('edTypesCount').textContent = types.size;
+
+      if (rows.length > 0) {
+        edResults.classList.add('active');
+        renderTable(rows, 'edTableContainer', 'ed', state.which);
+      }
+    }
+
+    // ===== Table rendering with pagination =====
+    function renderTable(data, containerId, prefix, which) {
+      const container = document.getElementById(containerId);
+      const pageSize = 20;
+      const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+      let currentPage = 1;
+
+      const headers = headersFor(which);
+
+      container.innerHTML = `
+        <div class="table-container">
+          <table class="equipment-table">
+            <thead>
+              <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+            </thead>
+            <tbody id="${prefix}TableBody"></tbody>
+          </table>
+          <div class="pagination">
+            <button id="${prefix}PrevBtn">Previous</button>
+            <span class="page-info" id="${prefix}PageInfo">Page 1 of ${totalPages}</span>
+            <button id="${prefix}NextBtn">Next</button>
+          </div>
+        </div>
+      `;
+
+      const tbody = document.getElementById(`${prefix}TableBody`);
+      const prevBtn = document.getElementById(`${prefix}PrevBtn`);
+      const nextBtn = document.getElementById(`${prefix}NextBtn`);
+      const pageInfo = document.getElementById(`${prefix}PageInfo`);
+
+      function renderPage(page) {
+        tbody.innerHTML = '';
+        const start = (page - 1) * pageSize;
+        const end = Math.min(start + pageSize, data.length);
+
+        for (let i = start; i < end; i++) {
+          const item = data[i];
+          const tr = document.createElement('tr');
+
+          headers.forEach(key => {
+            const td = document.createElement('td');
+            td.textContent = (item[key] === null || item[key] === undefined) ? "" : String(item[key]);
+            td.contentEditable = true;
+            td.addEventListener('input', () => { item[key] = td.textContent.trim(); });
+            tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        }
+
+        prevBtn.disabled = page === 1;
+        nextBtn.disabled = page === totalPages;
+        pageInfo.textContent = `Page ${page} of ${totalPages}`;
+      }
+
+      prevBtn.addEventListener('click', () => {
+        if (currentPage > 1) { currentPage--; renderPage(currentPage); }
+      });
+
+      nextBtn.addEventListener('click', () => {
+        if (currentPage < totalPages) { currentPage++; renderPage(currentPage); }
+      });
+
+      renderPage(1);
+    }
+
+    // ===== Excel download buttons =====
+    async function downloadMvExcel() {
+      // ✅ MV is type1
+      await downloadEditedExcelFromBackend(mvData, "type1");
+    }
+
+    async function downloadEdExcel() {
+      // ✅ ED is type2
+      await downloadEditedExcelFromBackend(edData, "type2");
+    }
+
+    async function downloadEditedExcelFromBackend(state, which) {
+      if (!state || !Array.isArray(state.equipment_data) || state.equipment_data.length === 0) return;
+
+      const headers = headersFor(which);
+      const payload = {
+        which,
+        rows: state.equipment_data.map(r => {
+          const obj = {};
+          headers.forEach(h => obj[h] = (r[h] === null || r[h] === undefined) ? "" : String(r[h]));
+          return obj;
+        })
+      };
+
+      try {
+        const res = await fetch(absUrl(ENDPOINTS.exportEdited), {
+          method: "POST",
+          headers: getAuthHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Export failed: ${res.status}\n${text || ''}`);
+        }
+
+        const json = await res.json();
+        if (!json.excel_file_name) throw new Error("Server did not return excel_file_name.");
+
+        window.open(absUrl(ENDPOINTS.outputsPrefix + json.excel_file_name), "_blank");
+      } catch (e) {
+        alert(safeText(e.message || e));
+      }
+    }
+
+    // Initialize auth
+    initSupabaseAuth();
+  </script>
+</body>
+</html>
