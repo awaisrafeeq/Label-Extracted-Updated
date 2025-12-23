@@ -196,16 +196,39 @@ def _type2_run_job(job_id: str):
 
         token = job.get("token")
         user_id = job.get("user_id")
-        if token and user_id:
-            _sb_insert_job(
-                token=token,
-                user_id=user_id,
-                job_type="type2",
-                original_filename=pdf_filename,
-                excel_file_name=excel_name,
-                equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
-                execution_time_seconds=exec_time,
-            )
+        if user_id:
+            try:
+                if token:
+                    _sb_insert_job(
+                        token=token,
+                        user_id=user_id,
+                        job_type="type2",
+                        original_filename=pdf_filename,
+                        excel_file_name=excel_name,
+                        equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
+                        execution_time_seconds=exec_time,
+                    )
+                else:
+                    _sb_service_insert_job(
+                        user_id=user_id,
+                        job_type="type2",
+                        original_filename=pdf_filename,
+                        excel_file_name=excel_name,
+                        equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
+                        execution_time_seconds=exec_time,
+                    )
+            except Exception:
+                try:
+                    _sb_service_insert_job(
+                        user_id=user_id,
+                        job_type="type2",
+                        original_filename=pdf_filename,
+                        excel_file_name=excel_name,
+                        equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
+                        execution_time_seconds=exec_time,
+                    )
+                except Exception:
+                    pass
 
         with TYPE2_JOBS_LOCK:
             job = TYPE2_JOBS.get(job_id)
@@ -253,6 +276,37 @@ def _sb_rest_request(method: str, path_with_query: str, token: str, body: dict |
         raise HTTPException(status_code=500, detail=f"Supabase REST request failed: {str(e)}")
 
 
+def _sb_service_rest_request(method: str, path_with_query: str, body: dict | None = None):
+    """Call Supabase PostgREST with the service role key (bypasses RLS)."""
+    sb_url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY") or ""
+    if not sb_url or not service_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_URL or SUPABASE_SERVICE_KEY is missing on the server")
+
+    url = f"{sb_url}/rest/v1/{path_with_query.lstrip('/')}"
+    data = None
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        err = e.read().decode("utf-8") if hasattr(e, "read") else str(e)
+        raise HTTPException(status_code=500, detail=f"Supabase REST error: {e.code} {err}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase REST request failed: {str(e)}")
+
+
 def _sb_insert_job(
     token: str,
     user_id: str,
@@ -273,6 +327,26 @@ def _sb_insert_job(
     # PostgREST insert: POST /rest/v1/jobs
     inserted = _sb_rest_request("POST", "jobs", token, payload)
     # returns list with inserted row
+    return inserted[0] if isinstance(inserted, list) and inserted else inserted
+
+
+def _sb_service_insert_job(
+    user_id: str,
+    job_type: str,
+    original_filename: str | None,
+    excel_file_name: str | None,
+    equipment_count: int | None,
+    execution_time_seconds: float | None,
+):
+    payload = {
+        "user_id": user_id,
+        "job_type": job_type,
+        "original_filename": original_filename,
+        "excel_file_name": excel_file_name,
+        "equipment_count": equipment_count,
+        "execution_time_seconds": execution_time_seconds,
+    }
+    inserted = _sb_service_rest_request("POST", "jobs", payload)
     return inserted[0] if isinstance(inserted, list) and inserted else inserted
 
 @app.post("/extract-type1")
