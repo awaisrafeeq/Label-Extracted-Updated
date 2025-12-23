@@ -1356,28 +1356,61 @@
           body: formData
         });
 
-        if (!response.ok) {
+        if (!(response.ok || response.status === 202)) {
           const text = await response.text();
           throw new Error(`Server error: ${response.status}\n${text || ''}`);
         }
 
-        const data = await response.json();
+        const start = await response.json();
+        const jobId = start.job_id;
+        if (!jobId) throw new Error('Server did not return job_id.');
 
-        edData = {
-          which: "type2",
-          raw: data,
-          equipment_data: Array.isArray(data.equipment_data) ? data.equipment_data : [],
-          excel_file_name: data.excel_file_name || null,
-          execution_time_seconds: data.execution_time_seconds ?? null,
-        };
+        setStatus(edStatus, '', `Processing started. Job: <code>${jobId}</code><br/>Please wait...`);
 
-        displayEdResults(edData);
+        const pollUrl = absUrl(`/extract-type2/jobs/${encodeURIComponent(jobId)}`);
+        const pollStart = Date.now();
+        const maxMs = 60 * 60 * 1000;
 
-        const dl = edData.excel_file_name
-          ? `<br/><a href="${absUrl(ENDPOINTS.outputsPrefix + edData.excel_file_name)}" target="_blank" rel="noopener noreferrer">Download original Excel</a>`
-          : "";
+        while (true) {
+          await new Promise(r => setTimeout(r, 2500));
 
-        setStatus(edStatus, 'success', `PDF processed successfully!${dl}`);
+          const stRes = await fetch(pollUrl, { headers: getAuthHeaders() });
+          if (!stRes.ok) {
+            const txt = await stRes.text();
+            throw new Error(`Status check failed (${stRes.status}): ${txt || ''}`);
+          }
+
+          const st = await stRes.json();
+          if (st.status === 'done') {
+            edData = {
+              which: "type2",
+              raw: st,
+              equipment_data: Array.isArray(st.equipment_data) ? st.equipment_data : [],
+              excel_file_name: st.excel_file_name || null,
+              execution_time_seconds: st.execution_time_seconds ?? null,
+            };
+
+            displayEdResults(edData);
+
+            const dl = edData.excel_file_name
+              ? `<br/><a href="${absUrl(ENDPOINTS.outputsPrefix + edData.excel_file_name)}" target="_blank" rel="noopener noreferrer">Download original Excel</a>`
+              : "";
+
+            setStatus(edStatus, 'success', `PDF processed successfully!${dl}`);
+            break;
+          }
+
+          if (st.status === 'error') {
+            throw new Error(st.error || 'Type 2 processing failed.');
+          }
+
+          const elapsedSec = Math.floor((Date.now() - pollStart) / 1000);
+          setStatus(edStatus, '', `Processing... (${elapsedSec}s)<br/>Job: <code>${jobId}</code>`);
+
+          if (Date.now() - pollStart > maxMs) {
+            throw new Error('Processing is taking too long. Please try again later.');
+          }
+        }
 
       } catch (error) {
         setStatus(edStatus, 'error', `Error: ${safeText(error.message)}`);

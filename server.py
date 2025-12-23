@@ -11,6 +11,8 @@ import sys
 import json
 import urllib.request
 import urllib.error
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from extract_equipment_simple import main as run_type1_extractor
@@ -49,14 +51,18 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 
 app = FastAPI()
 
+TYPE2_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+TYPE2_JOBS_LOCK = threading.Lock()
+TYPE2_JOBS: dict[str, dict[str, Any]] = {}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -137,6 +143,85 @@ def _save_upload_to_temp(sub_prefix: str, pdf_file: UploadFile) -> Path:
     with temp_path.open("wb") as f:
         shutil.copyfileobj(pdf_file.file, f)
     return temp_path
+
+
+def _type2_run_job(job_id: str):
+    with TYPE2_JOBS_LOCK:
+        job = TYPE2_JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["started_at"] = time.time()
+
+    try:
+        if ExtractorConfig is None or extract_system_pdf_with_config is None or save_to_excel_type2 is None:
+            raise RuntimeError(
+                "Type 2 extractor is not available. Copy the 'system_only_extractor' folder into this project (Lab_Extractor_Supabase/system_only_extractor) and restart the server."
+            )
+
+        temp_path = Path(job["temp_path"])
+        pdf_filename = job.get("original_filename")
+
+        config = ExtractorConfig()
+        try:
+            from dotenv import load_dotenv
+
+            se_env = SYSTEM_ONLY_EXTRACTOR_DIR / ".env"
+            if se_env.exists():
+                load_dotenv(dotenv_path=se_env)
+        except Exception:
+            pass
+
+        v_enabled = (os.environ.get("VISION_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+        config.vision_enabled = v_enabled
+        if os.environ.get("VISION_PROVIDER"):
+            config.vision_provider = (os.environ.get("VISION_PROVIDER") or "OPENAI").strip()
+        if os.environ.get("VISION_MODEL"):
+            config.vision_model = (os.environ.get("VISION_MODEL") or "").strip()
+
+        equipment_data = extract_system_pdf_with_config(str(temp_path), config)
+
+        original_name = pdf_filename or "SYSTEM"
+        base_name = Path(original_name).name
+        system_name = base_name.replace(" Labels.pdf", "").replace(".pdf", "")
+        if not system_name.strip():
+            system_name = "SYSTEM"
+
+        all_systems_data = {system_name: equipment_data}
+        excel_name = f"equipment_type2_{temp_path.stem}.xlsx"
+        excel_path = OUTPUTS_DIR / excel_name
+        save_to_excel_type2(all_systems_data, str(excel_path))
+
+        exec_time = round(time.time() - float(job["started_at"]), 2)
+
+        token = job.get("token")
+        user_id = job.get("user_id")
+        if token and user_id:
+            _sb_insert_job(
+                token=token,
+                user_id=user_id,
+                job_type="type2",
+                original_filename=pdf_filename,
+                excel_file_name=excel_name,
+                equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
+                execution_time_seconds=exec_time,
+            )
+
+        with TYPE2_JOBS_LOCK:
+            job = TYPE2_JOBS.get(job_id)
+            if job:
+                job["status"] = "done"
+                job["finished_at"] = time.time()
+                job["execution_time_seconds"] = exec_time
+                job["equipment_data"] = equipment_data
+                job["excel_file_name"] = excel_name
+    except Exception as e:
+        with TYPE2_JOBS_LOCK:
+            job = TYPE2_JOBS.get(job_id)
+            if job:
+                job["status"] = "error"
+                job["finished_at"] = time.time()
+                job["error"] = str(e)
 
 def _sb_rest_request(method: str, path_with_query: str, token: str, body: dict | None = None):
     """
@@ -236,73 +321,56 @@ async def extract_type2(
     user: dict = Depends(get_current_user),
     token: str = Depends(get_access_token),
 ):
-    """
-    Endpoint for Type 2 PDFs.
-    Uses system_only_extractor pipeline.
-    """
-    start_time = time.time()
-
-    if ExtractorConfig is None or extract_system_pdf_with_config is None or save_to_excel_type2 is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Type 2 extractor is not available. Copy the 'system_only_extractor' folder into this project (Lab_Extractor_Supabase/system_only_extractor) and restart the server.",
-        )
+    """Start async Type 2 extraction job (avoids Render/Cloudflare request timeouts)."""
 
     # Save uploaded PDF
     temp_path = _save_upload_to_temp("type2", pdf_file)
 
-    config = ExtractorConfig()
-    try:
-        from dotenv import load_dotenv
+    job_id = uuid.uuid4().hex
+    with TYPE2_JOBS_LOCK:
+        TYPE2_JOBS[job_id] = {
+            "status": "queued",
+            "created_at": time.time(),
+            "user_id": user.get("id"),
+            "token": token,
+            "original_filename": pdf_file.filename,
+            "temp_path": str(temp_path),
+        }
 
-        se_env = SYSTEM_ONLY_EXTRACTOR_DIR / ".env"
-        if se_env.exists():
-            load_dotenv(dotenv_path=se_env)
-    except Exception:
-        pass
+    TYPE2_EXECUTOR.submit(_type2_run_job, job_id)
+    return JSONResponse(status_code=202, content={"job_id": job_id, "status": "queued"})
 
-    v_enabled = (os.environ.get("VISION_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
-    config.vision_enabled = v_enabled
-    if os.environ.get("VISION_PROVIDER"):
-        config.vision_provider = (os.environ.get("VISION_PROVIDER") or "OPENAI").strip()
-    if os.environ.get("VISION_MODEL"):
-        config.vision_model = (os.environ.get("VISION_MODEL") or "").strip()
 
-    equipment_data = extract_system_pdf_with_config(str(temp_path), config)
+@app.get("/extract-type2/jobs/{job_id}")
+async def extract_type2_job_status(
+    job_id: str,
+    user: dict = Depends(get_current_user),
+):
+    with TYPE2_JOBS_LOCK:
+        job = TYPE2_JOBS.get(job_id)
 
-    # Figure out "System" name the same way as your manual script
-    original_name = pdf_file.filename or "SYSTEM"
-    base_name = Path(original_name).name
-    system_name = base_name.replace(" Labels.pdf", "").replace(".pdf", "")
-    if not system_name.strip():
-        system_name = "SYSTEM"
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
 
-    # Build the input for save_to_excel: {system_name: [rows...]}
-    all_systems_data = {system_name: equipment_data}
+    if job.get("user_id") and user.get("id") and job.get("user_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-    # Save Excel using your original helper
-    excel_name = f"equipment_type2_{temp_path.stem}.xlsx"
-    excel_path = OUTPUTS_DIR / excel_name
-    save_to_excel_type2(all_systems_data, str(excel_path))
+    status_val = job.get("status")
+    payload: dict[str, Any] = {"job_id": job_id, "status": status_val}
 
-    exec_time = round(time.time() - start_time, 2)
+    if status_val == "done":
+        payload.update(
+            {
+                "message": "Type 2 extraction successful",
+                "execution_time_seconds": job.get("execution_time_seconds"),
+                "equipment_data": job.get("equipment_data") or [],
+                "excel_file_name": job.get("excel_file_name"),
+            }
+        )
+    elif status_val == "error":
+        payload.update({"error": job.get("error") or "Unknown error"})
 
-    _sb_insert_job(
-        token=token,
-        user_id=user["id"],
-        job_type="type2",
-        original_filename=pdf_file.filename,
-        excel_file_name=excel_name,
-        equipment_count=len(equipment_data) if isinstance(equipment_data, list) else None,
-        execution_time_seconds=exec_time,
-    )
-
-    return {
-        "message": "Type 2 extraction successful",
-        "execution_time_seconds": exec_time,
-        "equipment_data": equipment_data,
-        "excel_file_name": excel_name,
-    }
+    return payload
 
 # New: export edited data with styled header
 
