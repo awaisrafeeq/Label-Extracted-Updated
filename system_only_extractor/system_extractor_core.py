@@ -170,11 +170,18 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
     base_y = base.y0
     base_x = base.x0
 
+    base_name_match = EQUIPMENT_RE.search(base.text)
+    base_name = ""
+    if base_name_match:
+        base_name = re.sub(r"[^A-Z0-9]", "", (base_name_match.group(1) or "").upper())
+    base_type = base_name[:3] if len(base_name) >= 3 else ""
+
     property_patterns = [
-        r"\d+A",
+        r"\b\d+\s*A\b",
+        r"\b\d+\s*AMP(?:S)?\b",
         r"\d+kW",
         r"\d+kVA",
-        r"\d+V",
+        r"\b\d+\s*V\b",
         r"\d+Y/\d+V",
         r"\d+kV",
         r"\d+kAIC",
@@ -213,14 +220,77 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
 
     props: List[str] = []
 
-    for j in range(idx + 1, min(idx + 25, len(elements))):
+    # RPP labels often have their electrical properties rendered as separate text lines
+    # below the name, and those text elements are not guaranteed to appear right after
+    # the name in the global sorted element list. For RPP, use a coordinate-based search.
+    if base_type == "RPP":
+        y_min = base_y
+        y_max = base_y + 320
+        x_center = (base.x0 + base.x1) / 2
+        x_min = x_center - 420
+        x_max = x_center + 420
+
+        amp_value: str | None = None
+        yv_value: str | None = None
+
+        # Group nearby text by approximate line (y bucket), then build line strings.
+        line_buckets: Dict[int, List[TextElement]] = {}
+        for el in elements:
+            if el.y0 < y_min or el.y0 > y_max:
+                continue
+            el_center_x = (el.x0 + el.x1) / 2
+            if el_center_x < x_min or el_center_x > x_max:
+                continue
+            # Skip the equipment label itself
+            if EQUIPMENT_RE.search(el.text):
+                continue
+
+            bucket = int(round(el.y0 / 6.0) * 6)
+            line_buckets.setdefault(bucket, []).append(el)
+
+        for _, els in sorted(line_buckets.items(), key=lambda kv: kv[0]):
+            els.sort(key=lambda e: e.x0)
+            line = " ".join(e.text for e in els if (e.text or "").strip())
+            if not line:
+                continue
+
+            if any(s in line for s in skip_tokens):
+                continue
+            if any(k in line.upper() for k in EXCLUDE_KEYWORDS):
+                continue
+
+            if yv_value is None:
+                m_yv = re.search(r"\b(\d{2,4})\s*Y/\s*(\d{2,4})\s*V\b", line, re.IGNORECASE)
+                if m_yv:
+                    yv_value = f"{m_yv.group(1)}Y/{m_yv.group(2)}V"
+
+            if amp_value is None:
+                m_a = re.search(r"\b(\d{2,5})\s*A\b", line, re.IGNORECASE)
+                if m_a:
+                    amp_value = f"{m_a.group(1)}A"
+
+            if amp_value is not None and yv_value is not None:
+                break
+
+        if amp_value:
+            props.append(amp_value)
+        if yv_value:
+            props.append(yv_value)
+
+        return props
+
+    max_scan = 60 if base_type == "RPP" else 25
+    max_y_diff = 220 if base_type == "RPP" else 120
+    max_x_diff = 340 if base_type == "RPP" else 260
+
+    for j in range(idx + 1, min(idx + max_scan, len(elements))):
         nxt = elements[j]
         y_diff = nxt.y0 - base_y
         x_diff = abs(nxt.x0 - base_x)
 
-        if y_diff > 120:
+        if y_diff > max_y_diff:
             break
-        if y_diff < 0 or x_diff > 260:
+        if y_diff < 0 or x_diff > max_x_diff:
             continue
 
         if EQUIPMENT_RE.search(nxt.text):
