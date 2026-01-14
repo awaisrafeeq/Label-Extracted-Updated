@@ -62,16 +62,16 @@ class EquipmentNode:
 class ExtractorConfig:
     min_source_font: float = 10.5
     y_group_tolerance: float = 35.0
-    primary_cost_tolerance: float = 150.0
+    primary_cost_tolerance: float = 300.0
     max_downward_search: float = 200.0
     fine_vector_snap: float = 1.0
-    bridge_max_gap: float = 20.0
-    bridge_align_tol: float = 2.0
+    bridge_max_gap: float = 300.0
+    bridge_align_tol: float = 16.0
     alt_types: Set[str] = None  # type: ignore[assignment]
     skip_source_types: Set[str] = None  # type: ignore[assignment]
 
-    debug_equipment: str = ""
-    debug_page: int = 0
+    debug_equipment: str = ""  # Debug disabled for production
+    debug_page: int = 0  # Debug all pages
 
     vision_enabled: bool = False
     vision_provider: str = "OPENAI"
@@ -540,7 +540,8 @@ def build_vector_graph(
                     + hypot(float(p2.x - p1.x), float(p2.y - p1.y))
                     + hypot(float(p3.x - p2.x), float(p3.y - p2.y))
                 )
-                n = max(2, int(ceil(est / step)))
+                min_sep = max(8, int(0.25 * min(w, h)))
+                n = max(2, int(ceil(est / min_sep)))
                 prev = (float(p0.x), float(p0.y))
                 for i in range(1, n + 1):
                     u = i / n
@@ -715,8 +716,8 @@ def find_port_nodes(
     b = equipment.bbox
     pb = b.expand(110, 110)
     zones = [
-        BBox(b.x0 - 50, b.y0 - 110, b.x1 + 50, b.y1 + 110),
-        BBox(b.x0 - 220, b.y0 - 700, b.x1 + 220, b.y1 + 180),
+        BBox(b.x0 - 120, b.y0 - 200, b.x1 + 120, b.y1 + 200),
+        BBox(b.x0 - 400, b.y0 - 1000, b.x1 + 400, b.y1 + 350),
     ]
 
     cand: List[Tuple[int, int, float, float, float, PointKey]] = []
@@ -738,7 +739,7 @@ def find_port_nodes(
                 elif y > pb.y1:
                     dy_pb = y - pb.y1
                 dist_pb = hypot(dx_pb, dy_pb)
-                if dist_pb > 120.0:
+                if dist_pb > 300.0:
                     continue
 
                 dx_t = 0.0
@@ -776,7 +777,7 @@ def find_port_nodes(
 
     selected: List[PointKey] = []
     selected_xy: List[Tuple[float, float]] = []
-    min_sep = 16.0
+    min_sep = 12.0
     max_ports = 8
 
     for __, ___, _, x, y, k in cand:
@@ -811,7 +812,7 @@ def trace_upstream_source(
     equip_index: Dict[Tuple[int, int], List[EquipmentNode]],
     current: EquipmentNode,
     cell: float = 200.0,
-    max_cost: float = 8000.0,
+    max_cost: float = 20000.0,
     config: Optional[ExtractorConfig] = None,
 
     # Return up to N upstream hits found by shortest-path cost (total line length)
@@ -1127,9 +1128,9 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
     for eq in nodes:
         ports: List[PointKey] = []
         if black_graph:
-            ports = find_port_nodes(eq, node_index, coords, black_graph, cell=50.0)
+            ports = find_port_nodes(eq, node_index, coords, black_graph, cell=80.0)
 
-        if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+        if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
             port_desc = ", ".join([f"{p}:{len(black_graph.get(p, ())) }@({coords[p][0]:.1f},{coords[p][1]:.1f})" for p in ports[:10]])
             print(f"DEBUG {eq.name} page={eq.page_index + 1} ports={len(ports)} {port_desc}")
 
@@ -1142,7 +1143,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
         if black_graph:
             for p in ports[:6]:
                 hits = trace_upstream_source(p, black_graph, coords, no_turn_black, equip_index, eq, config=config)
-                if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
                     if hits:
                         print(
                             f"DEBUG {eq.name} page={eq.page_index + 1} port={p} hits="
@@ -1163,6 +1164,27 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
 
         for nm, node in best_node_by_name.items():
             sources_with_cost.append((node, best_cost_by_name[nm]))
+
+        # ATS fallback: if no black ports found, try red ports as primary
+        if not sources_with_cost and red_graph and eq.type == "ATS":
+            red_ports = find_port_nodes(eq, node_index, coords, red_graph, cell=50.0)
+            for p in red_ports[:6]:
+                hits = trace_upstream_source(p, red_graph, coords, no_turn_red, equip_index, eq, config=config)
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                    if hits:
+                        print(
+                            f"DEBUG {eq.name} page={eq.page_index + 1} red_port={p} hits="
+                            + ", ".join([f"{h[0].name}:{h[1]:.1f}" for h in hits])
+                        )
+                for src, cost in hits:
+                    prev = best_cost_by_name.get(src.name)
+                    if prev is None or cost < prev:
+                        best_cost_by_name[src.name] = cost
+                        best_node_by_name[src.name] = src
+            for nm, node in best_node_by_name.items():
+                sources_with_cost.append((node, best_cost_by_name[nm]))
+            if best_cost_by_name:
+                vector_found = True
 
         if not sources_with_cost:
             prox = proximity_sources(elements, eq)
@@ -1193,7 +1215,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
 
         ranked = _rank_sources_with_cost(eq, sources_with_cost, config)
 
-        if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+        if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
             print(
                 f"DEBUG {eq.name} page={eq.page_index + 1} ranked="
                 + ", ".join([f"{n.name}:{c:.1f}" for c, n in ranked[:10]])
@@ -1224,13 +1246,87 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
         eq.primary_from = primary
         eq.alternate_from = alternate
 
-        if eq.type in config.alt_types and red_graph:
+        # ATS hybrid tracing: if no black ports found, try combined black+red graph
+        if eq.type == "ATS" and primary.startswith("BSW") and red_graph:
+            if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS hybrid tracing triggered")
+            
+            # Try red ports first (existing logic)
+            red_ports = find_port_nodes(eq, node_index, coords, red_graph, cell=50.0)
+            if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS red_ports={len(red_ports)}")
+            best_red_cost: Dict[str, float] = {}
+            best_red_node: Dict[str, EquipmentNode] = {}
+            for p in red_ports[:6]:
+                hits = trace_upstream_source(p, red_graph, coords, no_turn_red, equip_index, eq, config=config)
+                for src, cost in hits:
+                    prev = best_red_cost.get(src.name)
+                    if prev is None or cost < prev:
+                        best_red_cost[src.name] = cost
+                        best_red_node[src.name] = src
+            
+            # If no non-BSW red source, try combined graph approach
+            if best_red_node and all(n.startswith("BSW") for n in list(best_red_node.keys())[:3]):
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                    print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS trying combined graph tracing")
+                
+                # Combine black and red graphs for ATS
+                combined_graph = {}
+                if black_graph:
+                    for k, v in black_graph.items():
+                        combined_graph.setdefault(k, set()).update(v)
+                if red_graph:
+                    for k, v in red_graph.items():
+                        combined_graph.setdefault(k, set()).update(v)
+                
+                combined_coords = {**coords}
+                combined_no_turn = set()
+                if no_turn_black:
+                    combined_no_turn.update(no_turn_black)
+                if no_turn_red:
+                    combined_no_turn.update(no_turn_red)
+                
+                # Try tracing on combined graph
+                for p in red_ports[:6]:
+                    hits = trace_upstream_source(p, combined_graph, combined_coords, combined_no_turn, equip_index, eq, config=config)
+                    for src, cost in hits:
+                        if not src.name.startswith("BSW"):
+                            prev = best_red_cost.get(src.name)
+                            if prev is None or cost < prev:
+                                best_red_cost[src.name] = cost
+                                best_red_node[src.name] = src
+                
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                    print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS combined best_red_node={list(best_red_node.keys())}")
+            
+            if best_red_node:
+                red_ranked = _rank_sources_with_cost(eq, [(best_red_node[nm], best_red_cost[nm]) for nm in best_red_node], config)
+                # Prioritize UDP over BSW in combined results
+                udp_candidates = [(c, n) for c, n in red_ranked if n.name.startswith("UDP")]
+                if udp_candidates:
+                    eq.primary_from = udp_candidates[0][1].name
+                    eq.alternate_from = primary
+                    if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                        print(f"DEBUG {eq.name} page={eq.page_index + 1} hybrid primary={eq.primary_from} alternate={eq.alternate_from}")
+                elif red_ranked and not red_ranked[0][1].name.startswith("BSW"):
+                    eq.primary_from = red_ranked[0][1].name
+                    eq.alternate_from = primary
+                    if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                        print(f"DEBUG {eq.name} page={eq.page_index + 1} hybrid primary={eq.primary_from} alternate={eq.alternate_from}")
+                else:
+                    if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                        print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS hybrid: no non-BSW source found")
+        else:
+            if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
+                print(f"DEBUG {eq.name} page={eq.page_index + 1} ATS forced logic not triggered: type={eq.type} primary={primary} red_graph={bool(red_graph)}")
+
+        if eq.type in config.alt_types and red_graph and not (eq.type == "ATS" and not eq.primary_from.startswith("BSW")):
             red_ports = find_port_nodes(eq, node_index, coords, red_graph, cell=50.0)
             best_red_cost: Dict[str, float] = {}
             best_red_node: Dict[str, EquipmentNode] = {}
             for p in red_ports[:6]:
                 hits = trace_upstream_source(p, red_graph, coords, no_turn_red, equip_index, eq, config=config)
-                if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
                     if hits:
                         print(
                             f"DEBUG {eq.name} page={eq.page_index + 1} red_port={p} hits="
@@ -1273,7 +1369,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
 
             if fine_black_graph and fine_coords and fine_node_index:
                 fine_ports = find_port_nodes(eq, fine_node_index, fine_coords, fine_black_graph, cell=50.0)
-                if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
                     print(f"DEBUG {eq.name} page={eq.page_index + 1} fine_ports={len(fine_ports)}")
 
                 for p in fine_ports[:6]:
@@ -1281,7 +1377,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
                     if not hits:
                         continue
                     vector_found = True
-                    if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+                    if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
                         print(
                             f"DEBUG {eq.name} page={eq.page_index + 1} fine_port={p} hits="
                             + ", ".join([f"{h[0].name}:{h[1]:.1f}" for h in hits])
@@ -1311,7 +1407,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
                 import json
                 import re
 
-                if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+                if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
                     print(
                         f"DEBUG {eq.name} page={eq.page_index + 1} vision provider={config.vision_provider.upper()} model={config.vision_model}"
                     )
@@ -1347,7 +1443,7 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
             except Exception:
                 pass
 
-        if config.debug_equipment and eq.name == config.debug_equipment and (config.debug_page in {0, eq.page_index + 1}):
+        if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
             print(
                 f"DEBUG {eq.name} page={eq.page_index + 1} chosen primary={eq.primary_from} alternate={eq.alternate_from} confidence={confidence} vector={vector_found}"
             )
