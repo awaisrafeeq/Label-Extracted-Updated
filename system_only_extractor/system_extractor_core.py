@@ -60,7 +60,7 @@ class EquipmentNode:
 
 @dataclass
 class ExtractorConfig:
-    min_source_font: float = 10.5
+    min_source_font: float = 6.0
     y_group_tolerance: float = 35.0
     primary_cost_tolerance: float = 300.0
     max_downward_search: float = 200.0
@@ -85,7 +85,7 @@ class ExtractorConfig:
         if self.alt_types is None:
             self.alt_types = {"MBC", "MSB", "DSG", "ATS", "BMP"}
         if self.skip_source_types is None:
-            self.skip_source_types = {"UPB"}
+            self.skip_source_types = set()  # Remove UPB to allow as source
         if self.alt_type_priority is None:
             # Higher number = higher priority for alternate selection
             self.alt_type_priority = {
@@ -176,7 +176,21 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
         base_name = re.sub(r"[^A-Z0-9]", "", (base_name_match.group(1) or "").upper())
     base_type = base_name[:3] if len(base_name) >= 3 else ""
 
-    property_patterns = [
+    equipment_patterns = {
+        "MSB": [r"\b\d+\s*A\b", r"\b\d+Y/\d+V\b"],  # Only A and Y/V
+        "MBC": [r"\b\d+\s*A\b", r"\b\d+Y/\d+V\b"],  # Only A and Y/V
+        "MDP": [r"\b\d+\s*A\b", r"\b\d+Y/\d+V\b"],  # Only A and Y/V
+        "TRN": [],  # No properties
+        "UPS": [r"\b\d+kW\b", r"\b\d+kVA\b", r"\b\d+Y/\d+V\b"],  # KVA/KW and Y/V
+        "ATS": [r"\b\d+\s*A\b", r"\b\d+\s*V\b"],  # Only A and V
+        "PDU": [r"\b\d+kW\b", r"\b\d+kVA\b", r"\b\d+Y/\d+V\b"],  # KVA and Y/V
+        "GEN": [r"\b\d+kW\b", r"\b\d+kVA\b", r"\b\d+Y/\d+V\b"],  # KW/KVA and Y/V
+        "GSB": [r"\b\d+\s*A\b", r"\b\d+Y/\d+V\b"],  # Only A and Y/V
+        "EPP": [r"\b\d+\s*A\b", r"\b\d+Y/\d+V\b"],  # Only A and Y/V
+        "RPP": [r"\b\d+\s*A\b", r"\b\d+\s*AMP(?:S)?\b", r"\b\d+\s*V\b", r"\d+Y/\d+V", r"\d+kW", r"\d+kVA"],  # All electrical properties
+    }
+
+    default_patterns = [
         r"\b\d+\s*A\b",
         r"\b\d+\s*AMP(?:S)?\b",
         r"\d+kW",
@@ -190,6 +204,12 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
         r"NEMA\s+\d+",
         r"LSIG|ERMS|LSI|S\.T\.U\.",
     ]
+
+    property_patterns = equipment_patterns.get(base_type, default_patterns)
+    
+    # Debug: Check if RPP is detected and patterns
+    if base_type == "RPP":
+        print(f"DEBUG RPP detected: {base_name} with patterns: {property_patterns}")
 
     keywords = {
         "STATIC",
@@ -216,13 +236,39 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
         "GFPE",
         "ATS PLC",
         "MANUF",
+        "NEMA",
+        "WOODWARD",
+        "PLC",
+        "BREAKER",
+        "TRANSFER",
+        "CONTROLLER",
+        "RATED",
+        "DELAYED",
+        "OPEN",
+        "TRANSITION",
+        "S.E.",
+        "4W",
+        "K4",
+        "RATING",
+        ", 3",
+        ", 4W",
+        ", 3W",
+        "3W",
+        "4W",
+        "S.E. RATED",
+        "100kAIC",
+        "65kAIC",
+        "0.80PF",
+        "GALLON",
+        "U.L.",
+        "SKID",
+        "MOUNTED",
+        "BELLY",
+        "TANK"
     }
 
     props: List[str] = []
 
-    # RPP labels often have their electrical properties rendered as separate text lines
-    # below the name, and those text elements are not guaranteed to appear right after
-    # the name in the global sorted element list. For RPP, use a coordinate-based search.
     if base_type == "RPP":
         y_min = base_y
         y_max = base_y + 320
@@ -233,7 +279,6 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
         amp_value: str | None = None
         yv_value: str | None = None
 
-        # Group nearby text by approximate line (y bucket), then build line strings.
         line_buckets: Dict[int, List[TextElement]] = {}
         for el in elements:
             if el.y0 < y_min or el.y0 > y_max:
@@ -241,7 +286,6 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
             el_center_x = (el.x0 + el.x1) / 2
             if el_center_x < x_min or el_center_x > x_max:
                 continue
-            # Skip the equipment label itself
             if EQUIPMENT_RE.search(el.text):
                 continue
 
@@ -253,25 +297,25 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
             line = " ".join(e.text for e in els if (e.text or "").strip())
             if not line:
                 continue
+            
+            # Debug RPP line processing
+            print(f"DEBUG RPP LINE: '{line}'")
 
-            if any(s in line for s in skip_tokens):
-                continue
-            if any(k in line.upper() for k in EXCLUDE_KEYWORDS):
-                continue
+            # For RPP, don't skip entire line for skip tokens - process individual parts
 
             if yv_value is None:
-                m_yv = re.search(r"\b(\d{2,4})\s*Y/\s*(\d{2,4})\s*V\b", line, re.IGNORECASE)
+                m_yv = re.search(r"(\d{2,4}Y/\d{2,4}V)", line, re.IGNORECASE)
                 if m_yv:
-                    yv_value = f"{m_yv.group(1)}Y/{m_yv.group(2)}V"
+                    yv_value = m_yv.group(1)
+                    print(f"DEBUG RPP FOUND YV: {yv_value}")
 
             if amp_value is None:
-                m_a = re.search(r"\b(\d{2,5})\s*A\b", line, re.IGNORECASE)
-                if m_a:
-                    amp_value = f"{m_a.group(1)}A"
+                m_amp = re.search(r"(\d{1,4}A)", line, re.IGNORECASE)
+                if m_amp:
+                    amp_value = m_amp.group(1)
+                    print(f"DEBUG RPP FOUND AMP: {amp_value}")
 
-            if amp_value is not None and yv_value is not None:
-                break
-
+        print(f"DEBUG RPP FINAL PROPS: amp={amp_value}, yv={yv_value}")
         if amp_value:
             props.append(amp_value)
         if yv_value:
@@ -279,9 +323,9 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
 
         return props
 
-    max_scan = 60 if base_type == "RPP" else 25
-    max_y_diff = 220 if base_type == "RPP" else 120
-    max_x_diff = 340 if base_type == "RPP" else 260
+    max_scan = 200 if base_type == "RPP" else 25
+    max_y_diff = 600 if base_type == "RPP" else 120
+    max_x_diff = 800 if base_type == "RPP" else 260
 
     for j in range(idx + 1, min(idx + max_scan, len(elements))):
         nxt = elements[j]
@@ -296,18 +340,35 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
         if EQUIPMENT_RE.search(nxt.text):
             break
 
-        t = nxt.text
-        is_prop = any(re.search(p, t, re.IGNORECASE) for p in property_patterns) or any(
-            k in t.upper() for k in keywords
-        )
+        t = nxt.text.strip()
+        
+        # Debug RPP processing
+        if base_type == "RPP":
+            print(f"DEBUG RPP processing: '{t}'")
+        
+        # Check each part separately for Y/V patterns (to handle "4000A, 480Y/277V, 3")
+        text_parts = [part.strip() for part in t.split(',')]
+        matched_parts = []
+        
+        for part in text_parts:
+            # Skip standalone numbers and very short text
+            if re.match(r'^[,\s\d]+$', part) or len(part) < 2:
+                continue
+            # Skip if part contains skip tokens or exclude keywords
+            if any(s in part for s in skip_tokens) or any(k in part.upper() for k in EXCLUDE_KEYWORDS):
+                continue
+            # Check if part matches property patterns
+            if any(re.search(p, part, re.IGNORECASE) for p in property_patterns):
+                matched_parts.append(part)
 
-        if any(s in t for s in skip_tokens):
-            is_prop = False
-        if any(k in t.upper() for k in EXCLUDE_KEYWORDS):
-            is_prop = False
-
-        if is_prop and t not in props:
-            props.append(t)
+        # Add only the clean matched parts, not the whole string
+        for clean_part in matched_parts:
+            if clean_part and clean_part not in props:
+                props.append(clean_part)
+        
+        # Debug RPP matched parts
+        if base_type == "RPP" and matched_parts:
+            print(f"DEBUG RPP MATCHED: '{t}' -> {matched_parts}")
 
     return props
 
@@ -1071,10 +1132,13 @@ def _choose_primary_alternate(
     if eq.type in config.alt_types and remaining:
         remaining.sort(key=lambda t: (t[0], t[1].bbox.y0, -config.alt_type_priority.get(t[1].type, 0)))
         alt = remaining[0][1]
+        print(f"DEBUG {eq.type} {eq.name}: Checking alternate {alt.name} (type: {alt.type}, font_size: {alt.font_size}, skip_types: {config.skip_source_types}, min_font: {config.min_source_font})")
         if alt.type in config.skip_source_types or alt.font_size < config.min_source_font:
             # Don't report intermediate/minor devices as alternates.
+            print(f"DEBUG {eq.type} {eq.name}: SKIPPED alternate {alt.name} - type in skip_types or font too small")
             alternate = "-"
         else:
+            print(f"DEBUG {eq.type} {eq.name}: Added alternate {alt.name}")
             alternate = alt.name
 
     confidence = 90 if vector_found else 35
