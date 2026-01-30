@@ -1,9 +1,13 @@
 from __future__ import annotations
-
+import re
+import math
+from math import hypot, ceil
+from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass
-from heapq import heappop, heappush
-from math import ceil, hypot
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from enum import Enum
+from heapq import heappush, heappop
+from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
 
 try:
     import fitz  # PyMuPDF
@@ -65,7 +69,7 @@ class ExtractorConfig:
     primary_cost_tolerance: float = 300.0
     max_downward_search: float = 200.0
     fine_vector_snap: float = 1.0
-    bridge_max_gap: float = 300.0
+    bridge_max_gap: float = 1000.0
     bridge_align_tol: float = 16.0
     alt_types: Set[str] = None  # type: ignore[assignment]
     skip_source_types: Set[str] = None  # type: ignore[assignment]
@@ -83,7 +87,7 @@ class ExtractorConfig:
 
     def __post_init__(self) -> None:
         if self.alt_types is None:
-            self.alt_types = {"MBC", "MSB", "DSG", "ATS", "BMP"}
+            self.alt_types = {"MBC", "MSB", "DSG", "ATS", "BMP"}  # RPP removed to prevent alternates
         if self.skip_source_types is None:
             self.skip_source_types = set()  # Remove UPB to allow as source
         if self.alt_type_priority is None:
@@ -206,10 +210,6 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
     ]
 
     property_patterns = equipment_patterns.get(base_type, default_patterns)
-    
-    # Debug: Check if RPP is detected and patterns
-    if base_type == "RPP":
-        print(f"DEBUG RPP detected: {base_name} with patterns: {property_patterns}")
 
     keywords = {
         "STATIC",
@@ -298,24 +298,18 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
             if not line:
                 continue
             
-            # Debug RPP line processing
-            print(f"DEBUG RPP LINE: '{line}'")
-
             # For RPP, don't skip entire line for skip tokens - process individual parts
 
             if yv_value is None:
                 m_yv = re.search(r"(\d{2,4}Y/\d{2,4}V)", line, re.IGNORECASE)
                 if m_yv:
                     yv_value = m_yv.group(1)
-                    print(f"DEBUG RPP FOUND YV: {yv_value}")
 
             if amp_value is None:
                 m_amp = re.search(r"(\d{1,4}A)", line, re.IGNORECASE)
                 if m_amp:
                     amp_value = m_amp.group(1)
-                    print(f"DEBUG RPP FOUND AMP: {amp_value}")
 
-        print(f"DEBUG RPP FINAL PROPS: amp={amp_value}, yv={yv_value}")
         if amp_value:
             props.append(amp_value)
         if yv_value:
@@ -323,9 +317,9 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
 
         return props
 
-    max_scan = 200 if base_type == "RPP" else 25
-    max_y_diff = 600 if base_type == "RPP" else 120
-    max_x_diff = 800 if base_type == "RPP" else 260
+    max_scan = 800 if base_type == "RPP" else 25
+    max_y_diff = 1200 if base_type == "RPP" else 120
+    max_x_diff = 1600 if base_type == "RPP" else 260
 
     for j in range(idx + 1, min(idx + max_scan, len(elements))):
         nxt = elements[j]
@@ -341,10 +335,6 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
             break
 
         t = nxt.text.strip()
-        
-        # Debug RPP processing
-        if base_type == "RPP":
-            print(f"DEBUG RPP processing: '{t}'")
         
         # Check each part separately for Y/V patterns (to handle "4000A, 480Y/277V, 3")
         text_parts = [part.strip() for part in t.split(',')]
@@ -366,9 +356,6 @@ def _extract_properties(elements: Sequence[TextElement], idx: int) -> List[str]:
             if clean_part and clean_part not in props:
                 props.append(clean_part)
         
-        # Debug RPP matched parts
-        if base_type == "RPP" and matched_parts:
-            print(f"DEBUG RPP MATCHED: '{t}' -> {matched_parts}")
 
     return props
 
@@ -925,7 +912,8 @@ def trace_upstream_source(
                             # Labels/symbols are often offset from the wire connection.
                             if not cand.bbox.expand(75, 75).contains(x, y):
                                 continue
-                            if cand.bbox.y0 >= current.bbox.y0:
+                            # Remove upstream filtering for RPP - allow PDU from any position
+                            if current.type != "RPP" and cand.bbox.y0 >= current.bbox.y0:
                                 continue
 
                             if is_minor_source(cand):
@@ -1126,23 +1114,44 @@ def _choose_primary_alternate(
 
     best_cost, best = ranked[0]
     primary = best.name
+    
+    # Special logic for RPP: prioritize PDU over everything else
+    if eq.type == "RPP":
+        # Use all sources (no upstream filtering) to find PDU
+        upstream_sources = list(ranked)
+                
+        if upstream_sources:
+            # RPP special logic: Always prioritize PDU over everything else
+            # Find all PDU sources first
+            pdu_sources = [t for t in upstream_sources if t[1].type == "PDU"]
+            if pdu_sources:
+                # Sort PDU sources by cost (lowest cost = best connection)
+                pdu_sources.sort(key=lambda t: t[0])
+                best_cost, best = pdu_sources[0]
+                primary = best.name
+                print(f"🔥 RPP {eq.name}: FOUND PDU PRIMARY = {primary} (cost: {best_cost})")
+            else:
+                # No PDU found, assign no primary
+                print(f"❌ RPP {eq.name}: NO PDU FOUND - PRIMARY = -")
+                primary = "-"
+                best_cost = 0
+                best = upstream_sources[0][1] if upstream_sources else None
+            
+            print(f"✅ RPP {eq.name}: FINAL PRIMARY = {primary}")
 
     remaining = [(c, s) for (c, s) in ranked[1:]]
     alternate = "-"
     if eq.type in config.alt_types and remaining:
         remaining.sort(key=lambda t: (t[0], t[1].bbox.y0, -config.alt_type_priority.get(t[1].type, 0)))
         alt = remaining[0][1]
-        print(f"DEBUG {eq.type} {eq.name}: Checking alternate {alt.name} (type: {alt.type}, font_size: {alt.font_size}, skip_types: {config.skip_source_types}, min_font: {config.min_source_font})")
         if alt.type in config.skip_source_types or alt.font_size < config.min_source_font:
             # Don't report intermediate/minor devices as alternates.
-            print(f"DEBUG {eq.type} {eq.name}: SKIPPED alternate {alt.name} - type in skip_types or font too small")
             alternate = "-"
         else:
-            print(f"DEBUG {eq.type} {eq.name}: Added alternate {alt.name}")
             alternate = alt.name
 
     confidence = 90 if vector_found else 35
-    if best.type in config.skip_source_types or best.font_size < config.min_source_font:
+    if best and (best.type in config.skip_source_types or (best.font_size and best.font_size < config.min_source_font)):
         confidence = 35
     return primary, alternate, confidence
 
@@ -1204,7 +1213,31 @@ def assign_sources_for_page(page: "fitz.Page", page_index: int, config: Optional
         sources_with_cost: List[Tuple[EquipmentNode, float]] = []
         best_cost_by_name: Dict[str, float] = {}
         best_node_by_name: Dict[str, EquipmentNode] = {}
-        if black_graph:
+        
+        # RPP IMMEDIATE fallback: try proximity PDU search FIRST (before any vector tracing)
+        if eq.type == "RPP":
+            # Find all PDU equipment in the system
+            all_pdu = [node for node in nodes if node.type == "PDU"]
+            if all_pdu:
+                # Calculate Euclidean distance from RPP to each PDU
+                pdu_distances = []
+                rpp_center_x = (eq.bbox.x0 + eq.bbox.x1) / 2
+                rpp_center_y = (eq.bbox.y0 + eq.bbox.y1) / 2
+                
+                for pdu in all_pdu:
+                    pdu_center_x = (pdu.bbox.x0 + pdu.bbox.x1) / 2
+                    pdu_center_y = (pdu.bbox.y0 + pdu.bbox.y1) / 2
+                    distance = ((pdu_center_x - rpp_center_x) ** 2 + (pdu_center_y - rpp_center_y) ** 2) ** 0.5
+                    pdu_distances.append((pdu, distance))
+                
+                # Sort by distance and take closest PDU
+                pdu_distances.sort(key=lambda x: x[1])
+                closest_pdu = pdu_distances[0][0]
+                sources_with_cost.append((closest_pdu, pdu_distances[0][1]))
+                print(f"🎯 RPP {eq.name}: PROXIMITY PDU = {closest_pdu.name} (distance: {pdu_distances[0][1]:.1f})")
+        
+        # Only do vector tracing if RPP proximity didn't find anything
+        if not sources_with_cost and black_graph:
             for p in ports[:6]:
                 hits = trace_upstream_source(p, black_graph, coords, no_turn_black, equip_index, eq, config=config)
                 if config.debug_equipment and eq.name.startswith(config.debug_equipment) and (config.debug_page in {0, eq.page_index + 1}):
